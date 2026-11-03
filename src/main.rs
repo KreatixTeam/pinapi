@@ -169,6 +169,46 @@ async fn healthz() -> impl IntoResponse {
     Json(json!({"status": "ok"}))
 }
 
+async fn index() -> impl IntoResponse {
+    Json(json!({
+        "service": "pinapi",
+        "version": env!("CARGO_PKG_VERSION"),
+        "docs": "https://github.com/XFlexDev/pinapi",
+        "endpoints": [
+            "GET /healthz",
+            "GET /v1/status",
+            "POST /v1/login",
+            "POST /v1/logout",
+            "GET /v1/search?q=&scope=pins",
+            "GET /v1/suggest?term=",
+            "GET /v1/pinnable?url=",
+            "GET /v1/pins/{id}",
+            "POST /v1/pins",
+            "POST /v1/pins/upload",
+            "POST /v1/pins/upload-video",
+            "DELETE /v1/pins/{id}",
+            "POST /v1/pins/{id}/repin",
+            "POST /v1/pins/{id}/visual-search",
+            "GET|POST /v1/pins/{id}/comments",
+            "DELETE /v1/pins/{pin_id}/comments/{comment_id}",
+            "GET|POST /v1/boards",
+            "DELETE /v1/boards/{id}",
+            "GET /v1/boards/{id}/pins",
+            "GET /v1/boards/{id}/recommendations",
+            "GET|POST /v1/boards/{id}/sections",
+            "POST /v1/boards/{id}/follow | /unfollow",
+            "GET /v1/sections/{id}/pins",
+            "DELETE /v1/sections/{id}",
+            "GET /v1/users/{username}/overview | /pins | /boards | /followers | /following",
+            "POST /v1/users/{user_id}/follow | /unfollow",
+            "GET /v1/feed",
+            "GET|POST /v1/conversations",
+            "GET /v1/conversations/{id}",
+            "POST /v1/conversations/{id}/messages",
+        ],
+    }))
+}
+
 async fn status(State(s): State<Arc<AppState>>, headers: HeaderMap) -> ApiResult<impl IntoResponse> {
     check_auth(&s, &headers)?;
     Ok(Json(json!({
@@ -470,6 +510,7 @@ async fn main() {
     let state = Arc::new(AppState { pin, settings });
 
     let app = Router::new()
+        .route("/", get(index))
         .route("/healthz", get(healthz))
         .route("/v1/status", get(status))
         .route("/v1/login", post(login))
