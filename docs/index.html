@@ -2,57 +2,90 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>pinapi — unofficial Pinterest API</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/vuetify@3.7.19/dist/vuetify.min.css">
+<meta name="description" content="Unofficial public REST API for Pinterest. Search pins, boards and users — no key needed for reads.">
+<meta name="theme-color" content="#ffffff">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:100,300,400,500,700,900">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/vuetify@3.7.19/dist/vuetify.min.css">
 <style>
-  :root { color-scheme: dark; }
-  body, .v-application { background: #000 !important; }
-  code, pre { font-family: 'JetBrains Mono', ui-monospace, monospace; }
-  pre {
-    background: #0a0a0a; border: 1px solid #1c1c1c; border-radius: 8px;
-    padding: 14px; overflow-x: auto; font-size: 12.5px; line-height: 1.55; color: #d4d4d4;
+  code, pre { font-family: 'Roboto Mono', ui-monospace, monospace; }
+  .codebox {
+    position: relative;
+    background: #f5f5f5; border-radius: 4px;
+    padding: 14px 44px 14px 14px; overflow-x: auto;
+    font-size: 12.5px; line-height: 1.55; color: #333; white-space: pre;
   }
-  .m-get { color: #34d399; }
-  .m-post { color: #60a5fa; }
-  .m-del { color: #f87171; }
-  .route { font-family: ui-monospace, monospace; font-size: 13px; color: #e5e5e5; }
-  .dim { color: #666; font-size: 12.5px; }
+  .codebox .copybtn { position: absolute; top: 6px; right: 6px; }
+  .m-get  { color: #2e7d32; }
+  .m-post { color: #1565c0; }
+  .m-del  { color: #c62828; }
+  .route  { font-family: ui-monospace, monospace; font-size: 13px; }
+  .dim    { color: #777; font-size: 12.5px; }
+  table.routes { width: 100%; border-collapse: collapse; }
+  table.routes th { text-align: left; font-weight: 500; font-size: 12px; color: #888;
+    padding: 4px 8px; border-bottom: 1px solid rgba(0,0,0,.12); }
+  table.routes td { padding: 6px 8px; border-bottom: 1px solid rgba(0,0,0,.08);
+    font-size: 13px; vertical-align: top; }
+  .v-theme--dark table.routes th { border-color: rgba(255,255,255,.12); }
+  .v-theme--dark table.routes td { border-color: rgba(255,255,255,.08); }
+  .v-theme--dark .codebox { background: #1e1e1e; color: #ddd; }
+  .v-theme--dark .dim { color: #999; }
+  .v-theme--dark .footlink { color: rgba(255,255,255,.7); }
+  .footlink { color: rgba(0,0,0,.7); text-decoration: none; font-size: 14px; }
+  .footlink:hover { text-decoration: underline; }
+  .titlelink { color: #1565c0; text-decoration: underline; }
 </style>
 </head>
 <body>
 <div id="app">
   <v-app>
-    <v-app-bar flat color="#000" density="comfortable">
-      <v-app-bar-title class="font-weight-bold">
-        pinapi <span class="dim">/ unofficial pinterest api</span>
+    <v-app-bar elevation="1" color="white" density="comfortable">
+      <v-app-bar-nav-icon @click.stop="drawer = !drawer"></v-app-bar-nav-icon>
+      <v-app-bar-title>
+        Unofficial <a class="titlelink" href="/">Pinterest</a> API
       </v-app-bar-title>
       <v-spacer></v-spacer>
-      <v-btn icon="mdi-github" variant="text" href="https://github.com/XFlexDev/pinapi" target="_blank"></v-btn>
+      <v-btn icon="mdi-github" variant="text" href="https://github.com/XFlexDev/pinapi" target="_blank" aria-label="GitHub"></v-btn>
+      <v-btn :icon="dark ? 'mdi-weather-sunny' : 'mdi-weather-night'" variant="text" @click="dark = !dark" aria-label="toggle theme"></v-btn>
     </v-app-bar>
 
+    <v-navigation-drawer v-model="drawer" temporary>
+      <v-list density="compact" nav>
+        <v-list-item prepend-icon="mdi-home" title="API index" href="/"></v-list-item>
+        <v-list-item prepend-icon="mdi-book-open-variant" title="Docs" href="/docs" active></v-list-item>
+        <v-list-item prepend-icon="mdi-heart-pulse" title="Health" href="/healthz"></v-list-item>
+        <v-list-item prepend-icon="mdi-github" title="Source" href="https://github.com/XFlexDev/pinapi" target="_blank"></v-list-item>
+      </v-list>
+    </v-navigation-drawer>
+
     <v-main>
-      <v-container class="py-8" style="max-width: 900px">
-        <h1 class="text-h4 font-weight-bold mb-2">pinapi</h1>
-        <p class="text-body-2 mb-6" style="color:#999">
-          Unofficial REST API for Pinterest, in Rust. Read endpoints are public — no key needed.
+      <v-container class="py-6" style="max-width: 920px">
+        <v-breadcrumbs :items="[{ title: 'Home', href: '/' }, { title: 'API Docs' }]" class="pa-0 mb-4" density="compact">
+          <template v-slot:prepend><v-icon size="small">mdi-home</v-icon></template>
+        </v-breadcrumbs>
+
+        <h1 class="text-h5 font-weight-medium mb-3">pinapi</h1>
+        <p class="text-body-2 mb-6" style="max-width:640px">
+          Unofficial REST API for Pinterest, written in Rust. Read endpoints are public — no key needed.
           Writes and personal endpoints require <code>Authorization: Bearer &lt;key&gt;</code>.
           Responses are slimmed to the essentials; send <code>x-raw: 1</code> for full upstream payloads.
-          Rate limit: 60 req/min per IP.
+          Rate limit: 60 requests/minute per IP.
         </p>
 
-        <v-card variant="outlined" class="mb-8" color="#1c1c1c">
+        <v-card variant="flat" color="#fafafa" class="mb-6 border">
           <v-card-text>
-            <div class="text-subtitle-2 mb-2" style="color:#bbb">quick start</div>
-            <pre>curl -s "https://pinapi.kreatix.dev/v1/search?q=interior%20design&scope=pins&page_size=3"</pre>
+            <div class="text-subtitle-2 mb-2">Quick start</div>
+            <div class="codebox">curl -s "https://pinapi.kreatix.dev/v1/search?q=interior%20design&amp;scope=pins&amp;page_size=3"<v-btn class="copybtn" icon="mdi-content-copy" size="x-small" variant="text" @click="copy('curl -s &quot;https://pinapi.kreatix.dev/v1/search?q=interior%20design&scope=pins&page_size=3&quot;')"></v-btn></div>
           </v-card-text>
         </v-card>
 
-        <v-card variant="outlined" class="mb-6" color="#1c1c1c">
+        <v-card variant="flat" color="#fafafa" class="mb-8 border">
           <v-card-text>
-            <div class="text-subtitle-2 mb-2" style="color:#bbb">pin object shape</div>
-            <pre>{
+            <div class="text-subtitle-2 mb-2">Pin object shape</div>
+            <div class="codebox">{
   "id": "…",
   "type": "pin",
   "title": "…",
@@ -65,13 +98,13 @@
   "video": null,
   "board":  { "id": "…", "name": "…", "url": "…" },
   "pinner": { "username": "…", "full_name": "…" }
-}</pre>
+}</div>
           </v-card-text>
         </v-card>
 
         <div v-for="group in groups" :key="group.name" class="mb-8">
-          <h2 class="text-h6 font-weight-medium mb-3">{{ group.name }}</h2>
-          <v-table density="compact" style="background:transparent">
+          <h2 class="text-subtitle-1 font-weight-medium mb-2">{{ group.name }}</h2>
+          <table class="routes">
             <thead>
               <tr>
                 <th style="width:70px"></th>
@@ -88,15 +121,19 @@
                 <td class="dim">{{ r.open ? 'open' : 'key' }}</td>
               </tr>
             </tbody>
-          </v-table>
+          </table>
         </div>
-
-        <p class="dim mt-10">
-          pinterest's internal resources — unofficial, use a dedicated account.
-          built with <a href="https://github.com/XFlexDev/pinapi" style="color:#888">pinapi</a>.
-        </p>
       </v-container>
     </v-main>
+
+    <v-footer class="d-flex flex-column align-center py-6" color="transparent">
+      <div class="d-flex ga-6 mb-2">
+        <a class="footlink" href="/">API</a>
+        <a class="footlink" href="/healthz">Health</a>
+        <a class="footlink" href="https://github.com/XFlexDev/pinapi" target="_blank">GitHub</a>
+      </div>
+      <div class="dim">© 2026 pinapi</div>
+    </v-footer>
   </v-app>
 </div>
 
@@ -106,9 +143,21 @@
 const { createApp } = Vue;
 const { createVuetify } = Vuetify;
 
+const vuetify = createVuetify({
+  theme: {
+    defaultTheme: 'light',
+    themes: {
+      light: { colors: { primary: '#43a047', surface: '#ffffff' } },
+      dark:  { colors: { primary: '#66bb6a', background: '#121212', surface: '#1e1e1e' } },
+    },
+  },
+});
+
 createApp({
   data() {
     return {
+      drawer: false,
+      dark: false,
       groups: [
         { name: 'meta', routes: [
           { m:'GET',  cls:'get',  path:'/',                        params:'index', open:true },
@@ -168,8 +217,17 @@ createApp({
       ],
     };
   },
+  watch: {
+    dark(v) {
+      vuetify.theme.global.name.value = v ? 'dark' : 'light';
+      document.documentElement.style.colorScheme = v ? 'dark' : 'light';
+    },
+  },
+  methods: {
+    copy(t) { navigator.clipboard && navigator.clipboard.writeText(t); },
+  },
 })
-.use(createVuetify({ theme: { defaultTheme: 'dark', themes: { dark: { colors: { background:'#000000', surface:'#000000', primary:'#ffffff' } } } } }))
+.use(vuetify)
 .mount('#app');
 </script>
 </body>
