@@ -6,7 +6,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>pinapi — unofficial Pinterest API</title>
 <meta name="description" content="Unofficial public REST API for Pinterest. Search pins, boards and users — no key needed for reads.">
-<meta name="theme-color" content="#ffffff">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#121212" media="(prefers-color-scheme: dark)">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:100,300,400,500,700,900">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/vuetify@3.7.19/dist/vuetify.min.css">
@@ -14,38 +15,39 @@
   code, pre { font-family: 'Roboto Mono', ui-monospace, monospace; }
   .codebox {
     position: relative;
-    background: #f5f5f5; border-radius: 4px;
+    background: rgba(var(--v-theme-on-surface), .06); border-radius: 4px;
     padding: 14px 44px 14px 14px; overflow-x: auto;
-    font-size: 12.5px; line-height: 1.55; color: #333; white-space: pre;
+    font-size: 12.5px; line-height: 1.55; white-space: pre;
   }
   .codebox .copybtn { position: absolute; top: 6px; right: 6px; }
-  .m-get  { color: #2e7d32; }
-  .m-post { color: #1565c0; }
-  .m-del  { color: #c62828; }
+  .m-get  { color: #43a047; }
+  .m-post { color: #1e88e5; }
+  .m-del  { color: #e53935; }
   .route  { font-family: ui-monospace, monospace; font-size: 13px; }
-  .dim    { color: #777; font-size: 12.5px; }
-  table.routes { width: 100%; border-collapse: collapse; }
-  table.routes th { text-align: left; font-weight: 500; font-size: 12px; color: #888;
-    padding: 4px 8px; border-bottom: 1px solid rgba(0,0,0,.12); }
-  table.routes td { padding: 6px 8px; border-bottom: 1px solid rgba(0,0,0,.08);
+  .dim    { color: rgba(var(--v-theme-on-surface), .55); font-size: 12.5px; }
+  .tablewrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  table.routes { width: 100%; border-collapse: collapse; white-space: nowrap; }
+  table.routes th { text-align: left; font-weight: 500; font-size: 12px;
+    color: rgba(var(--v-theme-on-surface), .5);
+    padding: 4px 8px; border-bottom: 1px solid rgba(var(--v-theme-on-surface), .14); }
+  table.routes td { padding: 6px 8px; border-bottom: 1px solid rgba(var(--v-theme-on-surface), .08);
     font-size: 13px; vertical-align: top; }
-  .v-theme--dark table.routes th { border-color: rgba(255,255,255,.12); }
-  .v-theme--dark table.routes td { border-color: rgba(255,255,255,.08); }
-  .v-theme--dark .codebox { background: #1e1e1e; color: #ddd; }
-  .v-theme--dark .dim { color: #999; }
-  .v-theme--dark .footlink { color: rgba(255,255,255,.7); }
-  .footlink { color: rgba(0,0,0,.7); text-decoration: none; font-size: 14px; }
+  .cardbox { background: rgba(var(--v-theme-on-surface), .03);
+    border: 1px solid rgba(var(--v-theme-on-surface), .12); border-radius: 4px; }
+  .footlink { color: rgba(var(--v-theme-on-surface), .7); text-decoration: none; font-size: 14px; }
   .footlink:hover { text-decoration: underline; }
   .titlelink { color: #1565c0; text-decoration: underline; }
+  .v-theme--dark .titlelink { color: #64b5f6; }
 </style>
 </head>
 <body>
 <div id="app">
   <v-app>
-    <v-app-bar elevation="1" color="white" density="comfortable">
+    <v-app-bar elevation="1" density="comfortable">
       <v-app-bar-nav-icon @click.stop="drawer = !drawer"></v-app-bar-nav-icon>
-      <v-app-bar-title>
-        Unofficial <a class="titlelink" href="/">Pinterest</a> API
+      <v-app-bar-title class="text-body-1">
+        <span class="d-none d-sm-inline">Unofficial <a class="titlelink" href="/">Pinterest</a> API</span>
+        <span class="d-sm-none">pinapi</span>
       </v-app-bar-title>
       <v-spacer></v-spacer>
       <v-btn icon="mdi-github" variant="text" href="https://github.com/XFlexDev/pinapi" target="_blank" aria-label="GitHub"></v-btn>
@@ -75,14 +77,14 @@
           Rate limit: 60 requests/minute per IP.
         </p>
 
-        <v-card variant="flat" color="#fafafa" class="mb-6 border">
+        <v-card variant="flat" class="mb-6 cardbox">
           <v-card-text>
             <div class="text-subtitle-2 mb-2">Quick start</div>
             <div class="codebox">curl -s "https://pinapi.kreatix.dev/v1/search?q=interior%20design&amp;scope=pins&amp;page_size=3"<v-btn class="copybtn" icon="mdi-content-copy" size="x-small" variant="text" @click="copy('curl -s &quot;https://pinapi.kreatix.dev/v1/search?q=interior%20design&scope=pins&page_size=3&quot;')"></v-btn></div>
           </v-card-text>
         </v-card>
 
-        <v-card variant="flat" color="#fafafa" class="mb-8 border">
+        <v-card variant="flat" class="mb-8 cardbox">
           <v-card-text>
             <div class="text-subtitle-2 mb-2">Pin object shape</div>
             <div class="codebox">{
@@ -104,7 +106,7 @@
 
         <div v-for="group in groups" :key="group.name" class="mb-8">
           <h2 class="text-subtitle-1 font-weight-medium mb-2">{{ group.name }}</h2>
-          <table class="routes">
+          <div class="tablewrap"><table class="routes">
             <thead>
               <tr>
                 <th style="width:70px"></th>
@@ -121,7 +123,7 @@
                 <td class="dim">{{ r.open ? 'open' : 'key' }}</td>
               </tr>
             </tbody>
-          </table>
+          </table></div>
         </div>
       </v-container>
     </v-main>
@@ -145,7 +147,7 @@ const { createVuetify } = Vuetify;
 
 const vuetify = createVuetify({
   theme: {
-    defaultTheme: 'light',
+    defaultTheme: window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
     themes: {
       light: { colors: { primary: '#43a047', surface: '#ffffff' } },
       dark:  { colors: { primary: '#66bb6a', background: '#121212', surface: '#1e1e1e' } },
@@ -157,7 +159,7 @@ createApp({
   data() {
     return {
       drawer: false,
-      dark: false,
+      dark: window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches,
       groups: [
         { name: 'meta', routes: [
           { m:'GET',  cls:'get',  path:'/',                        params:'index', open:true },
@@ -218,9 +220,12 @@ createApp({
     };
   },
   watch: {
-    dark(v) {
-      vuetify.theme.global.name.value = v ? 'dark' : 'light';
-      document.documentElement.style.colorScheme = v ? 'dark' : 'light';
+    dark: {
+      immediate: true,
+      handler(v) {
+        vuetify.theme.global.name.value = v ? 'dark' : 'light';
+        document.documentElement.style.colorScheme = v ? 'dark' : 'light';
+      },
     },
   },
   methods: {
