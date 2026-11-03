@@ -1,22 +1,19 @@
-FROM python:3.12-slim
+FROM rust:1.83-slim AS builder
+WORKDIR /build
+COPY Cargo.toml Cargo.lock* ./
+COPY src ./src
+RUN cargo build --release && strip target/release/pinapi
 
-# Chrome is required for the (rare) interactive login; cookies persist for ~15 days.
+FROM debian:bookworm-slim
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends wget ca-certificates ffmpeg \
-    && wget -qO /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
-    && apt-get install -y --no-install-recommends /tmp/chrome.deb \
-    && rm /tmp/chrome.deb \
+    && apt-get install -y --no-install-recommends ca-certificates ffmpeg \
     && rm -rf /var/lib/apt/lists/*
-
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-COPY pinapi ./pinapi
+COPY --from=builder /build/target/release/pinapi /app/pinapi
 
-ENV PINAPI_CHROME_NO_SANDBOX=1 \
-    PINAPI_CRED_ROOT=/data/creds \
+ENV PINAPI_CRED_ROOT=/data/creds \
     PINAPI_UPLOAD_DIR=/data/uploads
 VOLUME /data
 EXPOSE 8000
 
-CMD ["uvicorn", "pinapi.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["/app/pinapi"]

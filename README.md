@@ -1,6 +1,6 @@
 # pinapi
 
-Unofficial REST API for Pinterest, built on [py3-pinterest](https://github.com/bstoilov/py3-pinterest) — the most complete, actively maintained open-source Pinterest client (MIT). It drives Pinterest's internal web endpoints using a normal account session, so **no official API approval is needed**.
+Unofficial REST API for Pinterest, written in Rust (axum + reqwest). It is a port of the [py3-pinterest](https://github.com/bstoilov/py3-pinterest) client's internals (MIT) — it drives Pinterest's internal web endpoints using a normal account session, so **no official API approval is needed**.
 
 > Unofficial. Use a dedicated account; automated use may violate Pinterest ToS.
 
@@ -14,17 +14,17 @@ docker compose up -d --build
 Or locally:
 
 ```bash
-pip install -r requirements.txt
-uvicorn pinapi.main:app --port 8000
+cargo build --release
+./target/release/pinapi    # listens on PINAPI_BIND (default 0.0.0.0:8000)
 ```
 
-Interactive docs at `/docs` (Swagger UI), health at `/healthz`, session state at `/v1/status`.
+Health at `/healthz`, session state at `/v1/status`.
 
 ## Auth
 
 Two layers:
 
-1. **Pinterest session** — all read endpoints (search, pins, boards, users, comments, suggestions) work **without credentials**; Pinterest serves public data anonymously. Write operations (create/delete pins, boards, follow, comment) and personal data (home feed, conversations) need an account: set `PINTEREST_EMAIL`/`PINTEREST_PASSWORD`/`PINTEREST_USERNAME` and the service logs in once via headless Chrome, caching cookies in `PINAPI_CRED_ROOT` (sessions last ~15 days, auto-relogin on 401/403).
+1. **Pinterest session** — all read endpoints (search, pins, boards, users, suggestions) work **without credentials**; Pinterest serves public data anonymously. Write operations (create/delete pins, boards, follow, comment) and personal data (home feed, conversations) need an account: set `PINTEREST_EMAIL`/`PINTEREST_PASSWORD`/`PINTEREST_USERNAME` and call `POST /v1/login`, or seed `PINTEREST_COOKIES` with a `_pinterest_sess` cookie. Cookies persist in `PINAPI_CRED_ROOT` (sessions last ~15 days).
 2. **Client auth** — if `PINAPI_API_KEYS` is set, every `/v1/*` route requires `Authorization: Bearer <key>`. Empty means open access (dev only).
 
 ## Endpoints
@@ -36,6 +36,8 @@ All list endpoints accept `pages` (1–`PINAPI_MAX_PAGES`, default 10) and `page
 |---|---|---|
 | GET | `/healthz` | liveness |
 | GET | `/v1/status` | logged_in, username |
+| POST | `/v1/login` | logs in with `PINTEREST_*` env creds |
+| POST | `/v1/logout` | ends the session |
 
 ### Search
 | Method | Path | Notes |
@@ -58,7 +60,7 @@ All list endpoints accept `pages` (1–`PINAPI_MAX_PAGES`, default 10) and `page
 ### Comments
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/v1/pins/{pin_id}/comments?pages=` | |
+| GET | `/v1/pins/{pin_id}/comments?pages=` | upstream resource currently 404s |
 | POST | `/v1/pins/{pin_id}/comments` | `{text}` |
 | DELETE | `/v1/pins/{pin_id}/comments/{comment_id}` | |
 
@@ -81,14 +83,14 @@ All list endpoints accept `pages` (1–`PINAPI_MAX_PAGES`, default 10) and `page
 |---|---|---|
 | GET | `/v1/users/{username}/overview` | profile |
 | GET | `/v1/users/{username}/pins` · `/boards` | |
-| GET | `/v1/users/{username}/followers` · `/following` | |
+| GET | `/v1/users/{username}/followers` · `/following` | requires login |
 | POST | `/v1/users/{user_id}/follow` · `/unfollow` | |
 
 ### Feed & messages
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/v1/feed?pages=` | home feed |
-| GET | `/v1/conversations` | |
+| GET | `/v1/feed?pages=` | home feed (login required) |
+| GET | `/v1/conversations` | login required |
 | POST | `/v1/conversations` | `{user_ids: [...]}` |
 | GET | `/v1/conversations/{id}` | |
 | POST | `/v1/conversations/{id}/messages` | `{message?, pin_id?}` |
@@ -102,13 +104,12 @@ curl -H "Authorization: Bearer $KEY" \
 
 Responses are Pinterest's raw `resource_response` payloads — pin objects carry `id`, `images` (`orig`, `236x`, …), `link`, `title`, `description`, `pinner`, `board`, etc.
 
-## Tests
+## Notes
 
-```bash
-pip install pytest httpx python-multipart
-pytest tests
-```
+- The `data` payload must be serialized with Python `json.dumps` default separators (`", "` / `": "`) — Pinterest's resource endpoints reject compact JSON, so the client mirrors that format exactly.
+- Every resource `GET` sends `X-Pinterest-PWS-Handler: www/[username].js`, which Pinterest requires.
+- A few upstream resources (`AggregatedCommentFeedResource`, `VisualLiveSearchResource`, `FindPinImagesResource`) are dead in py3-pinterest too — the endpoints proxy whatever Pinterest returns.
 
 ## Config
 
-See `.env.example`. `PINAPI_CHROME_NO_SANDBOX` / `PINAPI_CHROME_BINARY` / `PINAPI_CHROMEDRIVER_PATH` tune the login browser for containers; the Dockerfile already handles it.
+See `.env.example`.

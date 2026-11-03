@@ -1,0 +1,18 @@
+[package]
+name = "pinapi"
+version = "0.1.0"
+edition = "2021"
+description = "Unofficial Pinterest REST API"
+
+[dependencies]
+axum = { version = "0.8", features = ["multipart"] }
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip", "brotli", "deflate", "json", "cookies", "multipart", "stream", "charset", "http2"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+urlencoding = "2"
+uuid = { version = "1", features = ["v4"] }
+mime_guess = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+futures-util = "0.3"
