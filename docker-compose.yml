@@ -1,0 +1,12 @@
+services:
+  pinapi:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file: .env
+    volumes:
+      - pinapi-data:/data
+    restart: unless-stopped
+
+volumes:
+  pinapi-data:
