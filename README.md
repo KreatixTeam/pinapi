@@ -102,7 +102,7 @@ curl -H "Authorization: Bearer $KEY" \
   "http://localhost:8000/v1/search?q=interior%20design&scope=pins&page_size=50"
 ```
 
-Responses are Pinterest's raw `resource_response` payloads — pin objects carry `id`, `images` (`orig`, `236x`, …), `link`, `title`, `description`, `pinner`, `board`, etc.
+Responses are slimmed by default: pins → `id`, `type`, `title`, `description`, `link`, `domain`, `created_at`, `image`, `images` (`orig`/`736x`/`236x`), `video`, `board`, `pinner`; boards → `id`, `name`, `description`, `image`, `pin_count`, `owner`; users → `id`, `username`, `full_name`, `image`, `follower_count`, `about`. Grid/ad modules are filtered out and internal/session fields are dropped. Send header `x-raw: 1` for the full upstream payload.
 
 ## Notes
 
