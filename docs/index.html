@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pinapi — unofficial Pinterest API</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/vuetify@3.7.19/dist/vuetify.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css">
+<style>
+  :root { color-scheme: dark; }
+  body, .v-application { background: #000 !important; }
+  code, pre { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+  pre {
+    background: #0a0a0a; border: 1px solid #1c1c1c; border-radius: 8px;
+    padding: 14px; overflow-x: auto; font-size: 12.5px; line-height: 1.55; color: #d4d4d4;
+  }
+  .m-get { color: #34d399; }
+  .m-post { color: #60a5fa; }
+  .m-del { color: #f87171; }
+  .route { font-family: ui-monospace, monospace; font-size: 13px; color: #e5e5e5; }
+  .dim { color: #666; font-size: 12.5px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <v-app>
+    <v-app-bar flat color="#000" density="comfortable">
+      <v-app-bar-title class="font-weight-bold">
+        pinapi <span class="dim">/ unofficial pinterest api</span>
+      </v-app-bar-title>
+      <v-spacer></v-spacer>
+      <v-btn icon="mdi-github" variant="text" href="https://github.com/XFlexDev/pinapi" target="_blank"></v-btn>
+    </v-app-bar>
+
+    <v-main>
+      <v-container class="py-8" style="max-width: 900px">
+        <h1 class="text-h4 font-weight-bold mb-2">pinapi</h1>
+        <p class="text-body-2 mb-6" style="color:#999">
+          Unofficial REST API for Pinterest, in Rust. Read endpoints are public — no key needed.
+          Writes and personal endpoints require <code>Authorization: Bearer &lt;key&gt;</code>.
+          Responses are slimmed to the essentials; send <code>x-raw: 1</code> for full upstream payloads.
+          Rate limit: 60 req/min per IP.
+        </p>
+
+        <v-card variant="outlined" class="mb-8" color="#1c1c1c">
+          <v-card-text>
+            <div class="text-subtitle-2 mb-2" style="color:#bbb">quick start</div>
+            <pre>curl -s "https://pinapi.kreatix.dev/v1/search?q=interior%20design&scope=pins&page_size=3"</pre>
+          </v-card-text>
+        </v-card>
+
+        <v-card variant="outlined" class="mb-6" color="#1c1c1c">
+          <v-card-text>
+            <div class="text-subtitle-2 mb-2" style="color:#bbb">pin object shape</div>
+            <pre>{
+  "id": "…",
+  "type": "pin",
+  "title": "…",
+  "description": "…",
+  "link": "…",
+  "domain": "…",
+  "created_at": "…",
+  "image": "https://i.pinimg.com/originals/…",
+  "images": { "orig": {…}, "736x": {…}, "236x": {…} },
+  "video": null,
+  "board":  { "id": "…", "name": "…", "url": "…" },
+  "pinner": { "username": "…", "full_name": "…" }
+}</pre>
+          </v-card-text>
+        </v-card>
+
+        <div v-for="group in groups" :key="group.name" class="mb-8">
+          <h2 class="text-h6 font-weight-medium mb-3">{{ group.name }}</h2>
+          <v-table density="compact" style="background:transparent">
+            <thead>
+              <tr>
+                <th style="width:70px"></th>
+                <th>route</th>
+                <th class="dim">params / body</th>
+                <th style="width:80px" class="dim">access</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="r in group.routes" :key="r.m + r.path">
+                <td :class="'m-' + r.cls" class="font-weight-bold">{{ r.m }}</td>
+                <td class="route">{{ r.path }}</td>
+                <td class="dim">{{ r.params }}</td>
+                <td class="dim">{{ r.open ? 'open' : 'key' }}</td>
+              </tr>
+            </tbody>
+          </v-table>
+        </div>
+
+        <p class="dim mt-10">
+          pinterest's internal resources — unofficial, use a dedicated account.
+          built with <a href="https://github.com/XFlexDev/pinapi" style="color:#888">pinapi</a>.
+        </p>
+      </v-container>
+    </v-main>
+  </v-app>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/vue@3.5.13/dist/vue.global.prod.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/vuetify@3.7.19/dist/vuetify.min.js"></script>
+<script>
+const { createApp } = Vue;
+const { createVuetify } = Vuetify;
+
+createApp({
+  data() {
+    return {
+      groups: [
+        { name: 'meta', routes: [
+          { m:'GET',  cls:'get',  path:'/',                        params:'index', open:true },
+          { m:'GET',  cls:'get',  path:'/healthz',                 params:'liveness', open:true },
+          { m:'GET',  cls:'get',  path:'/v1/status',               params:'session state', open:false },
+          { m:'POST', cls:'post', path:'/v1/login',                params:'env creds', open:false },
+          { m:'POST', cls:'post', path:'/v1/logout',               params:'', open:false },
+        ]},
+        { name: 'search', routes: [
+          { m:'GET',  cls:'get',  path:'/v1/search',               params:'q= scope=pins pages= page_size=', open:true },
+          { m:'GET',  cls:'get',  path:'/v1/suggest',              params:'term= scope=pins count=5', open:true },
+          { m:'GET',  cls:'get',  path:'/v1/pinnable',             params:'url=', open:true },
+          { m:'POST', cls:'post', path:'/v1/pins/{pin_id}/visual-search', params:'{x,y,w,h,pages}', open:true },
+        ]},
+        { name: 'pins', routes: [
+          { m:'GET',  cls:'get',  path:'/v1/pins/{pin_id}',        params:'', open:true },
+          { m:'POST', cls:'post', path:'/v1/pins',                 params:'{board_id, image_url, title?, description?, link?, alt_text?, section_id?}', open:false },
+          { m:'POST', cls:'post', path:'/v1/pins/upload',          params:'multipart: file board_id title…', open:false },
+          { m:'POST', cls:'post', path:'/v1/pins/upload-video',    params:'multipart video', open:false },
+          { m:'POST', cls:'post', path:'/v1/pins/{pin_id}/repin',  params:'{board_id, section_id?}', open:false },
+          { m:'DEL',  cls:'del',  path:'/v1/pins/{pin_id}',        params:'', open:false },
+        ]},
+        { name: 'comments', routes: [
+          { m:'GET',  cls:'get',  path:'/v1/pins/{pin_id}/comments', params:'pages=', open:true },
+          { m:'POST', cls:'post', path:'/v1/pins/{pin_id}/comments', params:'{text}', open:false },
+          { m:'DEL',  cls:'del',  path:'/v1/pins/{pin_id}/comments/{comment_id}', params:'', open:false },
+        ]},
+        { name: 'boards', routes: [
+          { m:'GET',  cls:'get',  path:'/v1/boards/{id}/pins',     params:'pages= page_size=', open:true },
+          { m:'GET',  cls:'get',  path:'/v1/boards/{id}/recommendations', params:'', open:true },
+          { m:'GET',  cls:'get',  path:'/v1/boards/{id}/sections', params:'', open:true },
+          { m:'GET',  cls:'get',  path:'/v1/sections/{id}/pins',   params:'', open:true },
+          { m:'GET',  cls:'get',  path:'/v1/boards',               params:'username=', open:false },
+          { m:'POST', cls:'post', path:'/v1/boards',               params:'{name, description?, category?, privacy?, layout?}', open:false },
+          { m:'DEL',  cls:'del',  path:'/v1/boards/{id}',          params:'', open:false },
+          { m:'POST', cls:'post', path:'/v1/boards/{id}/sections', params:'{section_name}', open:false },
+          { m:'DEL',  cls:'del',  path:'/v1/sections/{id}',        params:'', open:false },
+          { m:'POST', cls:'post', path:'/v1/boards/{id}/follow',   params:'', open:false },
+          { m:'POST', cls:'post', path:'/v1/boards/{id}/unfollow', params:'', open:false },
+        ]},
+        { name: 'users', routes: [
+          { m:'GET',  cls:'get',  path:'/v1/users/{username}/overview',   params:'', open:true },
+          { m:'GET',  cls:'get',  path:'/v1/users/{username}/pins',       params:'pages= page_size=', open:true },
+          { m:'GET',  cls:'get',  path:'/v1/users/{username}/boards',     params:'pages=', open:true },
+          { m:'GET',  cls:'get',  path:'/v1/users/{username}/followers',  params:'pages=', open:true },
+          { m:'GET',  cls:'get',  path:'/v1/users/{username}/following',  params:'pages=', open:true },
+          { m:'POST', cls:'post', path:'/v1/users/{user_id}/follow',      params:'', open:false },
+          { m:'POST', cls:'post', path:'/v1/users/{user_id}/unfollow',    params:'', open:false },
+        ]},
+        { name: 'feed & messages', routes: [
+          { m:'GET',  cls:'get',  path:'/v1/feed',                        params:'pages=', open:false },
+          { m:'GET',  cls:'get',  path:'/v1/conversations',               params:'', open:false },
+          { m:'POST', cls:'post', path:'/v1/conversations',               params:'{user_ids: []}', open:false },
+          { m:'GET',  cls:'get',  path:'/v1/conversations/{id}',          params:'pages=', open:false },
+          { m:'POST', cls:'post', path:'/v1/conversations/{id}/messages', params:'{message?, pin_id?}', open:false },
+        ]},
+      ],
+    };
+  },
+})
+.use(createVuetify({ theme: { defaultTheme: 'dark', themes: { dark: { colors: { background:'#000000', surface:'#000000', primary:'#ffffff' } } } } }))
+.mount('#app');
+</script>
+</body>
+</html>

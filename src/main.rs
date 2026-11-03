@@ -20,6 +20,7 @@ use crate::pinterest::{PinError, Pinterest};
 struct AppState {
     pin: Pinterest,
     settings: Settings,
+    limits: std::sync::Mutex<std::collections::HashMap<String, (u32, std::time::Instant)>>,
 }
 
 impl From<PinError> for (StatusCode, Json<Value>) {
@@ -302,10 +303,59 @@ async fn slim_mw(req: Request<Body>, next: Next) -> Response {
     Response::from_parts(parts, Body::from(bytes))
 }
 
+/// Bearer-key gate for write/personal routes; open when PINAPI_API_KEYS is empty.
+async fn auth_mw(State(s): State<Arc<AppState>>, req: Request<Body>, next: Next) -> Response {
+    if s.settings.api_keys.is_empty() {
+        return next.run(req).await;
+    }
+    if check_auth(&s, req.headers()).is_ok() {
+        next.run(req).await
+    } else {
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"detail": "invalid or missing API key"})),
+        )
+            .into_response()
+    }
+}
+
+/// 60 req/min per client IP on public routes (cf-connecting-ip → x-forwarded-for).
+async fn rate_mw(State(s): State<Arc<AppState>>, req: Request<Body>, next: Next) -> Response {
+    let ip = req
+        .headers()
+        .get("cf-connecting-ip")
+        .or_else(|| req.headers().get("x-forwarded-for"))
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v.split(',').next().unwrap_or("").trim().to_string())
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| "anon".to_string());
+    let now = std::time::Instant::now();
+    {
+        let mut lim = s.limits.lock().unwrap();
+        let e = lim.entry(ip).or_insert((0, now));
+        if now.duration_since(e.1).as_secs() >= 60 {
+            *e = (0, now);
+        }
+        e.0 += 1;
+        if e.0 > 60 {
+            return (
+                StatusCode::TOO_MANY_REQUESTS,
+                Json(json!({"detail": "rate limited"})),
+            )
+                .into_response();
+        }
+    }
+    next.run(req).await
+}
+
 // ---------- meta ----------
 
 async fn healthz() -> impl IntoResponse {
     Json(json!({"status": "ok"}))
+}
+
+async fn docs() -> impl IntoResponse {
+    axum::response::Html(include_str!("../docs/index.html"))
 }
 
 async fn index() -> impl IntoResponse {
@@ -370,10 +420,8 @@ async fn logout(State(s): State<Arc<AppState>>, headers: HeaderMap) -> ApiResult
 
 async fn search(
     State(s): State<Arc<AppState>>,
-    headers: HeaderMap,
     Query(q): Query<SearchQ>,
 ) -> ApiResult<impl IntoResponse> {
-    check_auth(&s, &headers)?;
     let scope = q.scope.unwrap_or_else(|| "pins".into());
     if !["pins", "buyable_pins", "my_pins", "videos", "boards"].contains(&scope.as_str()) {
         return Err((StatusCode::UNPROCESSABLE_ENTITY, Json(json!({"detail": "invalid scope"}))));
@@ -383,26 +431,21 @@ async fn search(
 
 async fn suggest(
     State(s): State<Arc<AppState>>,
-    headers: HeaderMap,
     Query(q): Query<SuggestQ>,
 ) -> ApiResult<impl IntoResponse> {
-    check_auth(&s, &headers)?;
     Ok(Json(s.pin.type_ahead(&q.scope.unwrap_or_else(|| "pins".into()), q.count.unwrap_or(5), &q.term).await?))
 }
 
 async fn pinnable(
     State(s): State<Arc<AppState>>,
-    headers: HeaderMap,
     Query(q): Query<PinnableQ>,
 ) -> ApiResult<impl IntoResponse> {
-    check_auth(&s, &headers)?;
     Ok(Json(s.pin.pinnable_images(&q.url).await?))
 }
 
 // ---------- pins ----------
 
-async fn get_pin(State(s): State<Arc<AppState>>, headers: HeaderMap, Path(id): Path<String>) -> ApiResult<impl IntoResponse> {
-    check_auth(&s, &headers)?;
+async fn get_pin(State(s): State<Arc<AppState>>, Path(id): Path<String>) -> ApiResult<impl IntoResponse> {
     Ok(Json(s.pin.load_pin(&id).await?))
 }
 
@@ -486,15 +529,13 @@ async fn repin(State(s): State<Arc<AppState>>, headers: HeaderMap, Path(id): Pat
     Ok(Json(s.pin.repin(&b.board_id, &id, b.section_id.as_deref()).await?))
 }
 
-async fn visual_search(State(s): State<Arc<AppState>>, headers: HeaderMap, Path(id): Path<String>, Json(b): Json<VisualBody>) -> ApiResult<impl IntoResponse> {
-    check_auth(&s, &headers)?;
+async fn visual_search(State(s): State<Arc<AppState>>, _headers: HeaderMap, Path(id): Path<String>, Json(b): Json<VisualBody>) -> ApiResult<impl IntoResponse> {
     Ok(Json(s.pin.visual_search(&id, b.x, b.y, b.w, b.h, clamp_pages(&s, b.pages)).await?))
 }
 
 // ---------- comments ----------
 
-async fn get_comments(State(s): State<Arc<AppState>>, headers: HeaderMap, Path(id): Path<String>, Query(p): Query<Paged>) -> ApiResult<impl IntoResponse> {
-    check_auth(&s, &headers)?;
+async fn get_comments(State(s): State<Arc<AppState>>, _headers: HeaderMap, Path(id): Path<String>, Query(p): Query<Paged>) -> ApiResult<impl IntoResponse> {
     Ok(Json(s.pin.comments(&id, p.page_size.unwrap_or(50), clamp_pages(&s, p.pages)).await?))
 }
 
@@ -510,8 +551,7 @@ async fn delete_comment(State(s): State<Arc<AppState>>, headers: HeaderMap, Path
 
 // ---------- boards ----------
 
-async fn list_boards(State(s): State<Arc<AppState>>, headers: HeaderMap, Query(q): Query<BoardsQ>) -> ApiResult<impl IntoResponse> {
-    check_auth(&s, &headers)?;
+async fn list_boards(State(s): State<Arc<AppState>>, _headers: HeaderMap, Query(q): Query<BoardsQ>) -> ApiResult<impl IntoResponse> {
     Ok(Json(s.pin.boards(q.username.as_deref(), q.page_size.unwrap_or(50), clamp_pages(&s, q.pages)).await?))
 }
 
@@ -531,18 +571,15 @@ async fn delete_board(State(s): State<Arc<AppState>>, headers: HeaderMap, Path(i
     Ok(Json(s.pin.delete_board(&id).await?))
 }
 
-async fn board_feed(State(s): State<Arc<AppState>>, headers: HeaderMap, Path(id): Path<String>, Query(p): Query<Paged>) -> ApiResult<impl IntoResponse> {
-    check_auth(&s, &headers)?;
+async fn board_feed(State(s): State<Arc<AppState>>, _headers: HeaderMap, Path(id): Path<String>, Query(p): Query<Paged>) -> ApiResult<impl IntoResponse> {
     Ok(Json(s.pin.board_feed(&id, p.page_size.unwrap_or(250), clamp_pages(&s, p.pages)).await?))
 }
 
-async fn board_recs(State(s): State<Arc<AppState>>, headers: HeaderMap, Path(id): Path<String>, Query(p): Query<Paged>) -> ApiResult<impl IntoResponse> {
-    check_auth(&s, &headers)?;
+async fn board_recs(State(s): State<Arc<AppState>>, _headers: HeaderMap, Path(id): Path<String>, Query(p): Query<Paged>) -> ApiResult<impl IntoResponse> {
     Ok(Json(s.pin.board_recommendations(&id, p.page_size.unwrap_or(50), clamp_pages(&s, p.pages)).await?))
 }
 
-async fn board_sections(State(s): State<Arc<AppState>>, headers: HeaderMap, Path(id): Path<String>, Query(p): Query<Paged>) -> ApiResult<impl IntoResponse> {
-    check_auth(&s, &headers)?;
+async fn board_sections(State(s): State<Arc<AppState>>, _headers: HeaderMap, Path(id): Path<String>, Query(p): Query<Paged>) -> ApiResult<impl IntoResponse> {
     Ok(Json(s.pin.board_sections(&id, p.page_size.unwrap_or(100), clamp_pages(&s, p.pages)).await?))
 }
 
@@ -556,8 +593,7 @@ async fn delete_section(State(s): State<Arc<AppState>>, headers: HeaderMap, Path
     Ok(Json(s.pin.delete_board_section(&id).await?))
 }
 
-async fn section_pins(State(s): State<Arc<AppState>>, headers: HeaderMap, Path(id): Path<String>, Query(p): Query<Paged>) -> ApiResult<impl IntoResponse> {
-    check_auth(&s, &headers)?;
+async fn section_pins(State(s): State<Arc<AppState>>, _headers: HeaderMap, Path(id): Path<String>, Query(p): Query<Paged>) -> ApiResult<impl IntoResponse> {
     Ok(Json(s.pin.section_pins(&id, p.page_size.unwrap_or(25), clamp_pages(&s, p.pages)).await?))
 }
 
@@ -573,28 +609,23 @@ async fn unfollow_board(State(s): State<Arc<AppState>>, headers: HeaderMap, Path
 
 // ---------- users ----------
 
-async fn user_overview(State(s): State<Arc<AppState>>, headers: HeaderMap, Path(u): Path<String>) -> ApiResult<impl IntoResponse> {
-    check_auth(&s, &headers)?;
+async fn user_overview(State(s): State<Arc<AppState>>, _headers: HeaderMap, Path(u): Path<String>) -> ApiResult<impl IntoResponse> {
     Ok(Json(s.pin.user_overview(Some(&u)).await?))
 }
 
-async fn user_pins(State(s): State<Arc<AppState>>, headers: HeaderMap, Path(u): Path<String>, Query(p): Query<Paged>) -> ApiResult<impl IntoResponse> {
-    check_auth(&s, &headers)?;
+async fn user_pins(State(s): State<Arc<AppState>>, _headers: HeaderMap, Path(u): Path<String>, Query(p): Query<Paged>) -> ApiResult<impl IntoResponse> {
     Ok(Json(s.pin.user_pins(Some(&u), p.page_size.unwrap_or(250), clamp_pages(&s, p.pages)).await?))
 }
 
-async fn user_boards(State(s): State<Arc<AppState>>, headers: HeaderMap, Path(u): Path<String>, Query(p): Query<Paged>) -> ApiResult<impl IntoResponse> {
-    check_auth(&s, &headers)?;
+async fn user_boards(State(s): State<Arc<AppState>>, _headers: HeaderMap, Path(u): Path<String>, Query(p): Query<Paged>) -> ApiResult<impl IntoResponse> {
     Ok(Json(s.pin.boards(Some(&u), p.page_size.unwrap_or(50), clamp_pages(&s, p.pages)).await?))
 }
 
-async fn user_followers(State(s): State<Arc<AppState>>, headers: HeaderMap, Path(u): Path<String>, Query(p): Query<Paged>) -> ApiResult<impl IntoResponse> {
-    check_auth(&s, &headers)?;
+async fn user_followers(State(s): State<Arc<AppState>>, _headers: HeaderMap, Path(u): Path<String>, Query(p): Query<Paged>) -> ApiResult<impl IntoResponse> {
     Ok(Json(s.pin.followers(Some(&u), p.page_size.unwrap_or(250), clamp_pages(&s, p.pages)).await?))
 }
 
-async fn user_following(State(s): State<Arc<AppState>>, headers: HeaderMap, Path(u): Path<String>, Query(p): Query<Paged>) -> ApiResult<impl IntoResponse> {
-    check_auth(&s, &headers)?;
+async fn user_following(State(s): State<Arc<AppState>>, _headers: HeaderMap, Path(u): Path<String>, Query(p): Query<Paged>) -> ApiResult<impl IntoResponse> {
     Ok(Json(s.pin.following(Some(&u), p.page_size.unwrap_or(250), clamp_pages(&s, p.pages)).await?))
 }
 
@@ -646,45 +677,63 @@ async fn main() {
         eprintln!("failed to init pinterest client: {e}");
         std::process::exit(1);
     });
-    let state = Arc::new(AppState { pin, settings });
+    let state = Arc::new(AppState {
+        pin,
+        settings,
+        limits: std::sync::Mutex::new(std::collections::HashMap::new()),
+    });
 
-    let app = Router::new()
-        .route("/", get(index))
-        .route("/healthz", get(healthz))
-        .route("/v1/status", get(status))
-        .route("/v1/login", post(login))
-        .route("/v1/logout", post(logout))
+    // public read endpoints — no key, rate limited
+    let public = Router::new()
         .route("/v1/search", get(search))
         .route("/v1/suggest", get(suggest))
         .route("/v1/pinnable", get(pinnable))
-        .route("/v1/pins/{id}", get(get_pin).delete(delete_pin))
-        .route("/v1/pins", post(create_pin))
-        .route("/v1/pins/upload", post(upload_pin))
-        .route("/v1/pins/upload-video", post(upload_video))
-        .route("/v1/pins/{id}/repin", post(repin))
         .route("/v1/pins/{id}/visual-search", post(visual_search))
-        .route("/v1/pins/{id}/comments", get(get_comments).post(create_comment))
-        .route("/v1/pins/{pid}/comments/{cid}", delete(delete_comment))
-        .route("/v1/boards", get(list_boards).post(create_board))
-        .route("/v1/boards/{id}", delete(delete_board))
+        .route("/v1/pins/{id}", get(get_pin))
+        .route("/v1/pins/{id}/comments", get(get_comments))
         .route("/v1/boards/{id}/pins", get(board_feed))
         .route("/v1/boards/{id}/recommendations", get(board_recs))
-        .route("/v1/boards/{id}/sections", get(board_sections).post(create_section))
-        .route("/v1/boards/{id}/follow", post(follow_board))
-        .route("/v1/boards/{id}/unfollow", post(unfollow_board))
-        .route("/v1/sections/{id}", delete(delete_section))
+        .route("/v1/boards/{id}/sections", get(board_sections))
         .route("/v1/sections/{id}/pins", get(section_pins))
         .route("/v1/users/{u}/overview", get(user_overview))
         .route("/v1/users/{u}/pins", get(user_pins))
         .route("/v1/users/{u}/boards", get(user_boards))
         .route("/v1/users/{u}/followers", get(user_followers))
         .route("/v1/users/{u}/following", get(user_following))
-        .route("/v1/users/{id}/follow", post(follow_user))
-        .route("/v1/users/{id}/unfollow", post(unfollow_user))
+        .route_layer(middleware::from_fn_with_state(state.clone(), rate_mw));
+
+    // write + personal endpoints — Bearer key required when PINAPI_API_KEYS is set
+    let protected = Router::new()
+        .route("/v1/status", get(status))
+        .route("/v1/login", post(login))
+        .route("/v1/logout", post(logout))
+        .route("/v1/pins/{id}", delete(delete_pin))
+        .route("/v1/pins", post(create_pin))
+        .route("/v1/pins/upload", post(upload_pin))
+        .route("/v1/pins/upload-video", post(upload_video))
+        .route("/v1/pins/{id}/repin", post(repin))
+        .route("/v1/pins/{id}/comments", post(create_comment))
+        .route("/v1/pins/{id}/comments/{cid}", delete(delete_comment))
+        .route("/v1/boards", get(list_boards).post(create_board))
+        .route("/v1/boards/{id}", delete(delete_board))
+        .route("/v1/boards/{id}/sections", post(create_section))
+        .route("/v1/boards/{id}/follow", post(follow_board))
+        .route("/v1/boards/{id}/unfollow", post(unfollow_board))
+        .route("/v1/sections/{id}", delete(delete_section))
+        .route("/v1/users/{u}/follow", post(follow_user))
+        .route("/v1/users/{u}/unfollow", post(unfollow_user))
         .route("/v1/feed", get(home_feed))
         .route("/v1/conversations", get(conversations).post(new_conversation))
         .route("/v1/conversations/{id}", get(conversation))
         .route("/v1/conversations/{id}/messages", post(send_message))
+        .route_layer(middleware::from_fn_with_state(state.clone(), auth_mw));
+
+    let app = Router::new()
+        .route("/", get(index))
+        .route("/docs", get(docs))
+        .route("/healthz", get(healthz))
+        .merge(public)
+        .merge(protected)
         .layer(middleware::from_fn(slim_mw))
         .layer(DefaultBodyLimit::max(512 * 1024 * 1024))
         .with_state(state.clone());
