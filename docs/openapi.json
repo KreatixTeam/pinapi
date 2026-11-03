@@ -1,0 +1,382 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "pinapi",
+    "description": "Unofficial REST API for Pinterest, written in Rust. Read endpoints are public — no key needed. Writes and personal endpoints require a Bearer key. Responses are slimmed to the essentials; send `x-raw: 1` for full upstream payloads. Rate limit: 60 requests/minute per IP on public routes.",
+    "version": "0.1.0",
+    "license": { "name": "MIT", "url": "https://github.com/KreatixTeam/pinapi" }
+  },
+  "servers": [{ "url": "https://pinapi.kreatix.dev" }],
+  "tags": [
+    { "name": "meta" }, { "name": "search" }, { "name": "pins" },
+    { "name": "comments" }, { "name": "boards" }, { "name": "users" },
+    { "name": "feed & messages" }
+  ],
+  "paths": {
+    "/": {
+      "get": {
+        "tags": ["meta"], "summary": "Endpoint index",
+        "responses": { "200": { "description": "JSON map of all endpoints" } }
+      }
+    },
+    "/healthz": {
+      "get": {
+        "tags": ["meta"], "summary": "Liveness check",
+        "responses": { "200": { "description": "{\"status\": \"ok\"}" } }
+      }
+    },
+    "/openapi.json": {
+      "get": {
+        "tags": ["meta"], "summary": "This OpenAPI document",
+        "responses": { "200": { "description": "OpenAPI 3.0 spec" } }
+      }
+    },
+    "/v1/status": {
+      "get": {
+        "tags": ["meta"], "summary": "Session state", "security": [{ "bearerAuth": [] }],
+        "responses": { "200": { "description": "Login/session state" }, "401": { "$ref": "#/components/responses/Unauthorized" } }
+      }
+    },
+    "/v1/login": {
+      "post": {
+        "tags": ["meta"], "summary": "Log in via env credentials", "security": [{ "bearerAuth": [] }],
+        "responses": { "200": { "description": "Login result" }, "401": { "$ref": "#/components/responses/Unauthorized" } }
+      }
+    },
+    "/v1/logout": {
+      "post": {
+        "tags": ["meta"], "summary": "Log out", "security": [{ "bearerAuth": [] }],
+        "responses": { "200": { "description": "Logged out" }, "401": { "$ref": "#/components/responses/Unauthorized" } }
+      }
+    },
+    "/v1/search": {
+      "get": {
+        "tags": ["search"], "summary": "Search pins, boards or videos",
+        "parameters": [
+          { "name": "q", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "scope", "in": "query", "schema": { "type": "string", "enum": ["pins", "boards", "videos"], "default": "pins" } },
+          { "name": "pages", "in": "query", "schema": { "type": "integer", "default": 1 } },
+          { "name": "page_size", "in": "query", "schema": { "type": "integer", "default": 25 } },
+          { "$ref": "#/components/parameters/XRaw" }
+        ],
+        "responses": { "200": { "description": "Array of slim pin/board objects", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Pin" } } } } }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+    "/v1/suggest": {
+      "get": {
+        "tags": ["search"], "summary": "Type-ahead suggestions",
+        "parameters": [
+          { "name": "term", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "scope", "in": "query", "schema": { "type": "string", "default": "pins" } },
+          { "name": "count", "in": "query", "schema": { "type": "integer", "default": 5 } }
+        ],
+        "responses": { "200": { "description": "Suggestions" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+    "/v1/pinnable": {
+      "get": {
+        "tags": ["search"], "summary": "Pinnable images on a page (upstream resource is dead)",
+        "parameters": [{ "name": "url", "in": "query", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Pinnable images" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+    "/v1/pins/{pin_id}/visual-search": {
+      "post": {
+        "tags": ["search"], "summary": "Visual search inside a pin image (upstream resource is dead)",
+        "parameters": [{ "name": "pin_id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "x": { "type": "number" }, "y": { "type": "number" }, "w": { "type": "number" }, "h": { "type": "number" }, "pages": { "type": "integer" } }, "required": ["x", "y", "w", "h"] } } } },
+        "responses": { "200": { "description": "Visually similar pins" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+    "/v1/pins/{pin_id}": {
+      "get": {
+        "tags": ["pins"], "summary": "Load a pin",
+        "parameters": [{ "name": "pin_id", "in": "path", "required": true, "schema": { "type": "string" } }, { "$ref": "#/components/parameters/XRaw" }],
+        "responses": { "200": { "description": "Slim pin object", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Pin" } } } }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      },
+      "delete": {
+        "tags": ["pins"], "summary": "Delete a pin", "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "pin_id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Deleted" }, "401": { "$ref": "#/components/responses/Unauthorized" } }
+      }
+    },
+    "/v1/pins": {
+      "post": {
+        "tags": ["pins"], "summary": "Create a pin", "security": [{ "bearerAuth": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["board_id", "image_url"], "properties": { "board_id": { "type": "string" }, "image_url": { "type": "string" }, "title": { "type": "string" }, "description": { "type": "string" }, "link": { "type": "string" }, "alt_text": { "type": "string" }, "section_id": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Created pin" }, "401": { "$ref": "#/components/responses/Unauthorized" } }
+      }
+    },
+    "/v1/pins/upload": {
+      "post": {
+        "tags": ["pins"], "summary": "Upload an image pin", "security": [{ "bearerAuth": [] }],
+        "requestBody": { "required": true, "content": { "multipart/form-data": { "schema": { "type": "object", "required": ["file", "board_id"], "properties": { "file": { "type": "string", "format": "binary" }, "board_id": { "type": "string" }, "title": { "type": "string" }, "description": { "type": "string" }, "link": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Created pin" }, "401": { "$ref": "#/components/responses/Unauthorized" } }
+      }
+    },
+    "/v1/pins/upload-video": {
+      "post": {
+        "tags": ["pins"], "summary": "Upload a video pin", "security": [{ "bearerAuth": [] }],
+        "requestBody": { "required": true, "content": { "multipart/form-data": { "schema": { "type": "object", "required": ["file", "board_id"], "properties": { "file": { "type": "string", "format": "binary" }, "board_id": { "type": "string" }, "title": { "type": "string" }, "description": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Created pin" }, "401": { "$ref": "#/components/responses/Unauthorized" } }
+      }
+    },
+    "/v1/pins/{pin_id}/repin": {
+      "post": {
+        "tags": ["pins"], "summary": "Repin to a board", "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "pin_id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["board_id"], "properties": { "board_id": { "type": "string" }, "section_id": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Repinned" }, "401": { "$ref": "#/components/responses/Unauthorized" } }
+      }
+    },
+    "/v1/pins/{pin_id}/comments": {
+      "get": {
+        "tags": ["comments"], "summary": "Comments on a pin (upstream resource is dead)",
+        "parameters": [{ "name": "pin_id", "in": "path", "required": true, "schema": { "type": "string" } }, { "name": "pages", "in": "query", "schema": { "type": "integer", "default": 1 } }],
+        "responses": { "200": { "description": "Comments" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      },
+      "post": {
+        "tags": ["comments"], "summary": "Comment on a pin", "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "pin_id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["text"], "properties": { "text": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Created comment" }, "401": { "$ref": "#/components/responses/Unauthorized" } }
+      }
+    },
+    "/v1/pins/{pin_id}/comments/{comment_id}": {
+      "delete": {
+        "tags": ["comments"], "summary": "Delete a comment", "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "pin_id", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "comment_id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Deleted" }, "401": { "$ref": "#/components/responses/Unauthorized" } }
+      }
+    },
+    "/v1/boards/{board_id}/pins": {
+      "get": {
+        "tags": ["boards"], "summary": "Pins on a board",
+        "parameters": [{ "name": "board_id", "in": "path", "required": true, "schema": { "type": "string" } }, { "name": "pages", "in": "query", "schema": { "type": "integer", "default": 1 } }, { "name": "page_size", "in": "query", "schema": { "type": "integer", "default": 25 } }],
+        "responses": { "200": { "description": "Slim pins", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Pin" } } } } }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+    "/v1/boards/{board_id}/recommendations": {
+      "get": {
+        "tags": ["boards"], "summary": "More ideas for a board",
+        "parameters": [{ "name": "board_id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Recommended pins" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+    "/v1/boards/{board_id}/sections": {
+      "get": {
+        "tags": ["boards"], "summary": "Board sections",
+        "parameters": [{ "name": "board_id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Sections" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      },
+      "post": {
+        "tags": ["boards"], "summary": "Create a board section", "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "board_id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["section_name"], "properties": { "section_name": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Created section" }, "401": { "$ref": "#/components/responses/Unauthorized" } }
+      }
+    },
+    "/v1/sections/{section_id}": {
+      "delete": {
+        "tags": ["boards"], "summary": "Delete a section", "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "section_id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Deleted" }, "401": { "$ref": "#/components/responses/Unauthorized" } }
+      }
+    },
+    "/v1/sections/{section_id}/pins": {
+      "get": {
+        "tags": ["boards"], "summary": "Pins in a section",
+        "parameters": [{ "name": "section_id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Slim pins" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+    "/v1/boards": {
+      "get": {
+        "tags": ["boards"], "summary": "Boards of the logged-in user", "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "username", "in": "query", "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Boards" }, "401": { "$ref": "#/components/responses/Unauthorized" } }
+      },
+      "post": {
+        "tags": ["boards"], "summary": "Create a board", "security": [{ "bearerAuth": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["name"], "properties": { "name": { "type": "string" }, "description": { "type": "string" }, "category": { "type": "string" }, "privacy": { "type": "string", "enum": ["public", "secret", "protected"] }, "layout": { "type": "string", "enum": ["default", "custom", "places", "topics"] } } } } } },
+        "responses": { "200": { "description": "Created board" }, "401": { "$ref": "#/components/responses/Unauthorized" } }
+      }
+    },
+    "/v1/boards/{board_id}": {
+      "delete": {
+        "tags": ["boards"], "summary": "Delete a board", "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "board_id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Deleted" }, "401": { "$ref": "#/components/responses/Unauthorized" } }
+      }
+    },
+    "/v1/boards/{board_id}/follow": {
+      "post": {
+        "tags": ["boards"], "summary": "Follow a board", "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "board_id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Followed" }, "401": { "$ref": "#/components/responses/Unauthorized" } }
+      }
+    },
+    "/v1/boards/{board_id}/unfollow": {
+      "post": {
+        "tags": ["boards"], "summary": "Unfollow a board", "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "board_id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Unfollowed" }, "401": { "$ref": "#/components/responses/Unauthorized" } }
+      }
+    },
+    "/v1/users/{username}/overview": {
+      "get": {
+        "tags": ["users"], "summary": "User profile + feed",
+        "parameters": [{ "name": "username", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "User overview" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+    "/v1/users/{username}/pins": {
+      "get": {
+        "tags": ["users"], "summary": "Pins created by a user",
+        "parameters": [{ "name": "username", "in": "path", "required": true, "schema": { "type": "string" } }, { "name": "pages", "in": "query", "schema": { "type": "integer", "default": 1 } }, { "name": "page_size", "in": "query", "schema": { "type": "integer", "default": 25 } }],
+        "responses": { "200": { "description": "Slim pins" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+    "/v1/users/{username}/boards": {
+      "get": {
+        "tags": ["users"], "summary": "User's boards",
+        "parameters": [{ "name": "username", "in": "path", "required": true, "schema": { "type": "string" } }, { "name": "pages", "in": "query", "schema": { "type": "integer", "default": 1 } }],
+        "responses": { "200": { "description": "Slim boards", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Board" } } } } }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+    "/v1/users/{username}/followers": {
+      "get": {
+        "tags": ["users"], "summary": "User's followers (requires login upstream)",
+        "parameters": [{ "name": "username", "in": "path", "required": true, "schema": { "type": "string" } }, { "name": "pages", "in": "query", "schema": { "type": "integer", "default": 1 } }],
+        "responses": { "200": { "description": "Slim users" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+    "/v1/users/{username}/following": {
+      "get": {
+        "tags": ["users"], "summary": "Users a user follows (requires login upstream)",
+        "parameters": [{ "name": "username", "in": "path", "required": true, "schema": { "type": "string" } }, { "name": "pages", "in": "query", "schema": { "type": "integer", "default": 1 } }],
+        "responses": { "200": { "description": "Slim users" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+    "/v1/users/{user_id}/follow": {
+      "post": {
+        "tags": ["users"], "summary": "Follow a user", "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "user_id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Followed" }, "401": { "$ref": "#/components/responses/Unauthorized" } }
+      }
+    },
+    "/v1/users/{user_id}/unfollow": {
+      "post": {
+        "tags": ["users"], "summary": "Unfollow a user", "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "user_id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Unfollowed" }, "401": { "$ref": "#/components/responses/Unauthorized" } }
+      }
+    },
+    "/v1/feed": {
+      "get": {
+        "tags": ["feed & messages"], "summary": "Home feed", "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "pages", "in": "query", "schema": { "type": "integer", "default": 1 } }],
+        "responses": { "200": { "description": "Feed pins" }, "401": { "$ref": "#/components/responses/Unauthorized" } }
+      }
+    },
+    "/v1/conversations": {
+      "get": {
+        "tags": ["feed & messages"], "summary": "List conversations", "security": [{ "bearerAuth": [] }],
+        "responses": { "200": { "description": "Conversations" }, "401": { "$ref": "#/components/responses/Unauthorized" } }
+      },
+      "post": {
+        "tags": ["feed & messages"], "summary": "Start a conversation", "security": [{ "bearerAuth": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["user_ids"], "properties": { "user_ids": { "type": "array", "items": { "type": "string" } } } } } } },
+        "responses": { "200": { "description": "Created conversation" }, "401": { "$ref": "#/components/responses/Unauthorized" } }
+      }
+    },
+    "/v1/conversations/{conversation_id}": {
+      "get": {
+        "tags": ["feed & messages"], "summary": "Conversation messages", "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "conversation_id", "in": "path", "required": true, "schema": { "type": "string" } }, { "name": "pages", "in": "query", "schema": { "type": "integer", "default": 1 } }],
+        "responses": { "200": { "description": "Messages" }, "401": { "$ref": "#/components/responses/Unauthorized" } }
+      }
+    },
+    "/v1/conversations/{conversation_id}/messages": {
+      "post": {
+        "tags": ["feed & messages"], "summary": "Send a message", "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "conversation_id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "message": { "type": "string" }, "pin_id": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Sent" }, "401": { "$ref": "#/components/responses/Unauthorized" } }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": { "type": "http", "scheme": "bearer", "description": "API key — required on writes and personal endpoints only" }
+    },
+    "parameters": {
+      "XRaw": {
+        "name": "x-raw", "in": "header", "schema": { "type": "string", "enum": ["1"] },
+        "description": "Return the full upstream Pinterest payload instead of the slimmed object"
+      }
+    },
+    "responses": {
+      "Unauthorized": { "description": "Bearer key required", "content": { "application/json": { "schema": { "type": "object", "properties": { "detail": { "type": "string", "example": "unauthorized" } } } } } },
+      "RateLimited": { "description": "Rate limit exceeded (60/min per IP)", "content": { "application/json": { "schema": { "type": "object", "properties": { "detail": { "type": "string", "example": "rate limited" } } } } } }
+    },
+    "schemas": {
+      "Pin": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" }, "type": { "type": "string", "example": "pin" },
+          "title": { "type": "string", "nullable": true }, "description": { "type": "string", "nullable": true },
+          "link": { "type": "string", "nullable": true }, "domain": { "type": "string", "nullable": true },
+          "created_at": { "type": "string", "nullable": true },
+          "image": { "type": "string", "nullable": true, "description": "Largest available image URL" },
+          "images": { "type": "object", "additionalProperties": { "$ref": "#/components/schemas/Image" } },
+          "video": { "type": "object", "nullable": true },
+          "board": { "$ref": "#/components/schemas/BoardRef" },
+          "pinner": { "$ref": "#/components/schemas/UserRef" }
+        }
+      },
+      "Image": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string" }, "width": { "type": "integer" }, "height": { "type": "integer" }
+        }
+      },
+      "Board": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" }, "name": { "type": "string" },
+          "description": { "type": "string", "nullable": true }, "url": { "type": "string" },
+          "image": { "type": "string", "nullable": true }, "image_cover_url": { "type": "string", "nullable": true },
+          "pin_count": { "type": "integer" }, "privacy": { "type": "string" },
+          "owner": { "$ref": "#/components/schemas/UserRef" }
+        }
+      },
+      "BoardRef": {
+        "type": "object",
+        "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "url": { "type": "string" } }
+      },
+      "User": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" }, "username": { "type": "string" }, "full_name": { "type": "string" },
+          "image": { "type": "string", "nullable": true }, "follower_count": { "type": "integer" },
+          "url": { "type": "string" }, "about": { "type": "string", "nullable": true }
+        }
+      },
+      "UserRef": {
+        "type": "object",
+        "properties": { "username": { "type": "string" }, "full_name": { "type": "string" } }
+      },
+      "Comment": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" }, "text": { "type": "string" }, "created_at": { "type": "string" },
+          "commenter": { "$ref": "#/components/schemas/UserRef" }
+        }
+      }
+    }
+  }
+}

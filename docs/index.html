@@ -50,7 +50,7 @@
         <span class="d-sm-none">pinapi</span>
       </v-app-bar-title>
       <v-spacer></v-spacer>
-      <v-btn icon="mdi-github" variant="text" href="https://github.com/XFlexDev/pinapi" target="_blank" aria-label="GitHub"></v-btn>
+      <v-btn icon="mdi-github" variant="text" href="https://github.com/KreatixTeam/pinapi" target="_blank" aria-label="GitHub"></v-btn>
       <v-btn :icon="dark ? 'mdi-weather-sunny' : 'mdi-weather-night'" variant="text" @click="dark = !dark" aria-label="toggle theme"></v-btn>
     </v-app-bar>
 
@@ -58,8 +58,9 @@
       <v-list density="compact" nav>
         <v-list-item prepend-icon="mdi-home" title="API index" href="/"></v-list-item>
         <v-list-item prepend-icon="mdi-book-open-variant" title="Docs" href="/docs" active></v-list-item>
+        <v-list-item prepend-icon="mdi-code-json" title="OpenAPI" href="/openapi.json"></v-list-item>
         <v-list-item prepend-icon="mdi-heart-pulse" title="Health" href="/healthz"></v-list-item>
-        <v-list-item prepend-icon="mdi-github" title="Source" href="https://github.com/XFlexDev/pinapi" target="_blank"></v-list-item>
+        <v-list-item prepend-icon="mdi-github" title="Source" href="https://github.com/KreatixTeam/pinapi" target="_blank"></v-list-item>
       </v-list>
     </v-navigation-drawer>
 
@@ -132,7 +133,7 @@
       <div class="d-flex ga-6 mb-2">
         <a class="footlink" href="/">API</a>
         <a class="footlink" href="/healthz">Health</a>
-        <a class="footlink" href="https://github.com/XFlexDev/pinapi" target="_blank">GitHub</a>
+        <a class="footlink" href="https://github.com/KreatixTeam/pinapi" target="_blank">GitHub</a>
       </div>
       <div class="dim">© 2026 pinapi</div>
     </v-footer>

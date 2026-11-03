@@ -358,11 +358,20 @@ async fn docs() -> impl IntoResponse {
     axum::response::Html(include_str!("../docs/index.html"))
 }
 
+async fn openapi() -> impl IntoResponse {
+    (
+        [(axum::http::header::CONTENT_TYPE, "application/json")],
+        include_str!("../docs/openapi.json"),
+    )
+}
+
 async fn index() -> impl IntoResponse {
     Json(json!({
         "service": "pinapi",
         "version": env!("CARGO_PKG_VERSION"),
-        "docs": "https://github.com/XFlexDev/pinapi",
+        "docs": "/docs",
+        "openapi": "/openapi.json",
+        "source": "https://github.com/KreatixTeam/pinapi",
         "endpoints": [
             "GET /healthz",
             "GET /v1/status",
@@ -731,6 +740,7 @@ async fn main() {
     let app = Router::new()
         .route("/", get(index))
         .route("/docs", get(docs))
+        .route("/openapi.json", get(openapi))
         .route("/healthz", get(healthz))
         .merge(public)
         .merge(protected)
