@@ -4,9 +4,11 @@ mod pinterest;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use axum::body::{to_bytes, Body};
 use axum::extract::{DefaultBodyLimit, Multipart, Path, Query, State};
-use axum::http::{HeaderMap, StatusCode};
-use axum::response::IntoResponse;
+use axum::http::{HeaderMap, Request, StatusCode};
+use axum::middleware::{self, Next};
+use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
@@ -161,6 +163,143 @@ async fn save_upload(state: &AppState, file: axum::extract::multipart::Field<'_>
 
 fn form_str(field: &axum::extract::multipart::Field<'_>) -> String {
     field.name().unwrap_or_default().to_string()
+}
+
+// ---------- response slimming ----------
+
+fn pick(v: &Value, path: &str) -> Value {
+    v.pointer(path).cloned().unwrap_or(Value::Null)
+}
+
+fn slim_pin(p: &Value) -> Value {
+    let mut imgs = serde_json::Map::new();
+    if let Some(images) = p.get("images").and_then(|i| i.as_object()) {
+        for k in ["orig", "736x", "236x"] {
+            if let Some(v) = images.get(k) {
+                imgs.insert(k.to_string(), v.clone());
+            }
+        }
+    }
+    let video = pick(p, "/videos/video_list/V_720P/url");
+    json!({
+        "id": pick(p, "/id"),
+        "type": pick(p, "/type"),
+        "title": pick(p, "/title"),
+        "description": pick(p, "/description"),
+        "link": pick(p, "/link"),
+        "domain": pick(p, "/domain"),
+        "created_at": pick(p, "/created_at"),
+        "image": pick(p, "/images/orig/url"),
+        "images": Value::Object(imgs),
+        "video": video,
+        "board": {
+            "id": pick(p, "/board/id"),
+            "name": pick(p, "/board/name"),
+            "url": pick(p, "/board/url"),
+        },
+        "pinner": {
+            "username": pick(p, "/pinner/username"),
+            "full_name": pick(p, "/pinner/full_name"),
+            "image": pick(p, "/pinner/image_xlarge_url"),
+        },
+    })
+}
+
+fn slim_board(b: &Value) -> Value {
+    json!({
+        "id": pick(b, "/id"),
+        "name": pick(b, "/name"),
+        "description": pick(b, "/description"),
+        "url": pick(b, "/url"),
+        "image": pick(b, "/image_cover_url"),
+        "pin_count": pick(b, "/pin_count"),
+        "privacy": pick(b, "/privacy"),
+        "owner": {
+            "username": pick(b, "/owner/username"),
+            "full_name": pick(b, "/owner/full_name"),
+        },
+    })
+}
+
+fn slim_user(u: &Value) -> Value {
+    json!({
+        "id": pick(u, "/id"),
+        "username": pick(u, "/username"),
+        "full_name": pick(u, "/full_name"),
+        "image": pick(u, "/image_xlarge_url"),
+        "follower_count": pick(u, "/follower_count"),
+        "url": pick(u, "/url"),
+        "about": pick(u, "/about"),
+    })
+}
+
+fn slim_comment(c: &Value) -> Value {
+    json!({
+        "id": pick(c, "/id"),
+        "text": pick(c, "/comment"),
+        "created_at": pick(c, "/created_at"),
+        "commenter": {
+            "username": pick(c, "/commenter/username"),
+            "full_name": pick(c, "/commenter/full_name"),
+        },
+    })
+}
+
+fn slim(v: Value) -> Value {
+    match v {
+        Value::Array(a) => Value::Array(
+            a.into_iter()
+                // drop grid/ad modules Pinterest injects into feeds
+                .filter(|x| {
+                    !(x.is_object()
+                        && (x.get("container_type").is_some()
+                            || x.get("is_promoted").and_then(|p| p.as_bool()) == Some(true)))
+                })
+                .map(slim)
+                .collect(),
+        ),
+        Value::Object(o) => {
+            let is_board = o.contains_key("privacy") && o.contains_key("owner");
+            let is_pin = !is_board && o.contains_key("images") && o.contains_key("id");
+            let is_user = o.contains_key("username")
+                && (o.contains_key("image_xlarge_url") || o.contains_key("follower_count"));
+            let is_comment = o.contains_key("comment") && o.contains_key("commenter");
+            if is_pin {
+                slim_pin(&Value::Object(o))
+            } else if is_board {
+                slim_board(&Value::Object(o))
+            } else if is_user {
+                slim_user(&Value::Object(o))
+            } else if is_comment {
+                slim_comment(&Value::Object(o))
+            } else {
+                Value::Object(o.into_iter().map(|(k, x)| (k, slim(x))).collect())
+            }
+        }
+        other => other,
+    }
+}
+
+/// Slims every JSON response; `x-raw: 1` opts out.
+async fn slim_mw(req: Request<Body>, next: Next) -> Response {
+    let raw = req
+        .headers()
+        .get("x-raw")
+        .and_then(|v| v.to_str().ok())
+        == Some("1");
+    let resp = next.run(req).await;
+    if raw {
+        return resp;
+    }
+    let (parts, body) = resp.into_parts();
+    let Ok(bytes) = to_bytes(body, usize::MAX).await else {
+        return Response::from_parts(parts, Body::empty());
+    };
+    let Ok(v) = serde_json::from_slice::<Value>(&bytes) else {
+        return Response::from_parts(parts, Body::from(bytes));
+    };
+    let bytes = serde_json::to_vec(&slim(v)).unwrap_or_default();
+    Response::from_parts(parts, Body::from(bytes))
 }
 
 // ---------- meta ----------
@@ -546,6 +685,7 @@ async fn main() {
         .route("/v1/conversations", get(conversations).post(new_conversation))
         .route("/v1/conversations/{id}", get(conversation))
         .route("/v1/conversations/{id}/messages", post(send_message))
+        .layer(middleware::from_fn(slim_mw))
         .layer(DefaultBodyLimit::max(512 * 1024 * 1024))
         .with_state(state.clone());
 
